@@ -1,0 +1,235 @@
+<?php
+/**
+ * @author Klaas Eikelboom  <klaas.eikelboom@civicoop.org>
+ * @date 02-Feb-2020
+ * @license  AGPL-3.0
+ */
+
+const REMOTE_NEWSLETTER_PROFILE='remote_newsletter_connection';
+const REMOTE_NEWSLETTER_THANKYOUPAGE='remote_newsletter_thankyoupage';
+
+function _remote_newsletter_sendCall($entity, $action, $parameters = [], $options = null) {
+  $profile=variable_get(REMOTE_NEWSLETTER_PROFILE);
+  $connector_name="remote_newsletter:$profile:";
+  $core = cmrf_core_get_core();
+  $connector_id = variable_get($connector_name);
+  if (empty($connector_id)) {
+    $connector_id = $core->registerConnector($connector_name, $profile);
+    variable_set($connector_name, $connector_id);
+  }
+  $call = $core->createCall($connector_id, $entity, $action, $parameters, $options);
+  $core->executeCall($call);
+  return $call;
+}
+/**
+ * Implements hook_menu().
+ */
+function remote_newsletter_menu() {
+  $items['admin/config/civimrf/remotenewsletter'] = [
+    'title' => 'Remote Newsletter',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => ['_remote_newsletter_admin_form'],
+    'access arguments' => ['remote newsletter administration'],
+    'type' => MENU_NORMAL_ITEM,
+  ];
+  $items['remote-newsletter/subscribe'] = [
+    'title' => 'Subscribe Newsletter',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => ['_remote_newsletter_subscribe_form'],
+    'access arguments' => ['remote newsletter access'],
+    'type' => MENU_NORMAL_ITEM,
+  ];
+  $items['remote-newsletter/unsubscribe'] = [
+    'title' => 'UnSubscribe Newsletters',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => ['_remote_newsletter_unsubscribe_form'],
+    'access arguments' => ['remote newsletter access'],
+    'type' => MENU_NORMAL_ITEM,
+  ];
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function remote_newsletter_permission()
+{
+  return [
+    'remote newsletter administration' => ['title' => t('Administer Remote Newsletter Forms')],
+    'remote newsletter access' => ['title' => t('Access Remote Newsletter Forms')],
+  ];
+}
+
+function _remote_newsletter_list(){
+  $call = _remote_newsletter_sendCall('Remotenewsletter','list');
+  $result = [];
+  foreach($call->getValues() as $value){
+    $result[$value['id']] = $value['title'];
+  }
+  return $result;
+}
+
+function _remote_newsletter_languages(){
+  return [
+    'en_US' => 'English',
+    'es_ES'=> 'Spanish',
+  ];
+}
+
+/**
+ * @param $form
+ * @param $form_state
+ * @return mixed
+ */
+function _remote_newsletter_admin_form($form, &$form_state) {
+  $profiles = cmrf_core_list_profiles();
+  $profiles_options = [];
+  foreach($profiles as $profile_name => $profile) {
+    $profiles_options[$profile_name] = $profile['label'];
+  }
+  $subscribeLink = l('Subscribe to remotenewsletter','/remote-newsletter/subscribe');
+  $unSubscribeLink = l('Unsubscribe to remotenewsletter','/remote-newsletter/unsubscribe');
+  $intro = <<< INTRO
+  <p>Newsletter subscription on a remote CiviCRM instance:</p>
+  <ul>
+    <li>$subscribeLink</li>
+    <li>$unSubscribeLink</li>
+  </ul>
+INTRO;
+
+  $form['intro'] = [
+    '#markup' =>$intro,
+  ];
+  $form[REMOTE_NEWSLETTER_PROFILE] = [
+    '#type' => 'select',
+    '#title' => t('Select connection profile'),
+    '#options' => $profiles_options,
+    '#required' => true,
+    '#default_value' => variable_get(REMOTE_NEWSLETTER_PROFILE, $profiles_options[0])
+  ];
+  $form[REMOTE_NEWSLETTER_THANKYOUPAGE] = [
+    '#type' => 'textfield',
+    '#title' => t('Drupal url to forward to after the newsletters is chosen'),
+    '#required' => true,
+    '#default_value' => variable_get(REMOTE_NEWSLETTER_THANKYOUPAGE,'/remote-newsletter/thankyou'),
+  ];
+  return system_settings_form($form);
+}
+
+function _remote_newsletter_subscribe_form($form, &$form_state) {
+  $form['intro'] = [
+    '#markup' => "<p>This is the subscribe form</p>"];
+  $form['first_name'] = [
+     '#type' => 'textfield',
+     '#title' => t('First Name'),
+     '#required' => true,
+  ];
+  $form['last_name'] = [
+    '#type' => 'textfield',
+    '#title' => t('Last name'),
+    '#required' => true,
+  ];
+  $form['email'] = [
+    '#type' => 'textfield',
+    '#title' => t('Email'),
+    '#required' => true,
+  ];
+  $form['language'] = [
+    '#type' => 'radios',
+    '#title' => t('Preferred Language'),
+    '#default' => 'en',
+    '#options' => _remote_newsletter_languages(),
+    '#required' => true,
+  ];
+  $form['subscription'] = [
+    '#type' => 'checkboxes',
+    '#title' => t('Newsletter Subscription'),
+    '#default' => 'en',
+    '#options' => _remote_newsletter_list(),
+    '#required' => true,
+  ];
+  $form['submit'] = [
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#submit' => ['_remote_newsletter_subscribe_submit']
+  ];
+  return $form;
+}
+
+function _remote_newsletter_subscribe_submit($form, &$form_state){
+  $values = $form_state['values'];
+  $call = _remote_newsletter_sendCall('Remotenewsletter','subscribe',[
+     'first_name'   => $values['first_name'],
+     'last_name'    => $values['last_name'],
+     'language'     => $values['language'],
+     'email'        => $values['email'],
+     'subscription' => $values['subscription']]);
+  drupal_goto(variable_get(REMOTE_NEWSLETTER_THANKYOUPAGE));
+}
+
+function _remote_newsletter_unsubscribe_form($form, &$form_state) {
+  $params =  drupal_get_query_parameters();
+  $cid = $params['cid'];
+  $cs  = $params['cs'];
+
+  if(empty($cid)||empty($cs)){
+    $form['info'] = [
+      '#markup' => "<p>Access not allowed (no cid or cs parameter given)</p>",
+    ];
+    return $form;
+  }
+
+  $call = _remote_newsletter_sendCall('Remotenewsletter', 'validatechecksum', [
+  'contact_id' => $cid,
+  'checksum' => $cs,
+  ]);
+
+  if($call->getValues()['valid']) {
+
+    $call = _remote_newsletter_sendCall('Remotenewsletter', 'preferences', ['contact_id'=>$cid]);
+    $values = $call->getValues();
+
+    $form['intro'] = [
+      '#markup' => "<p>This is the unsubscribe form for ${values['display_name']}, using email ${values['email']}</p>"];
+    $form['cid'] = [
+      '#type' => 'hidden',
+      '#value' => $cid,
+    ];
+
+    foreach($values['subscriptions'] as $subscription){
+    $form['subscription']['group_'.$subscription['id']] = [
+      '#type' => 'checkbox',
+      '#title' => $subscription['title'],
+      '#default_value' => $subscription['subscription'],
+    ];}
+    $form['submit'] = [
+      '#type' => 'submit',
+      '#value' => t('Submit'),
+      '#submit' => ['_remote_newsletter_unsubscribe_submit']
+    ];
+  } else {
+    $form['info'] = [
+      '#markup' => "<p>Acces not allowed (invalid checksum)</p>",
+    ];
+
+  }
+  return $form;
+}
+
+function _remote_newsletter_unsubscribe_submit($form, &$form_state){
+  $values = $form_state['values'];
+  $subscriptions = [];
+  foreach($values as $key=>$value){
+    if(strpos($key, 'group_') === 0 ){
+      $subscriptions[]=[
+        'group_id' => explode('_',$key)[1],
+        'subscription' => $value
+      ];
+    }
+  }
+  $call = _remote_newsletter_sendCall('Remotenewsletter', 'Updatepreferences', [
+    'contact_id'=>$values['cid'],
+    'subscriptions' => $subscriptions,
+  ]);
+  drupal_goto(variable_get(REMOTE_NEWSLETTER_THANKYOUPAGE));
+}

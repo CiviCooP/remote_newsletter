@@ -1,0 +1,9 @@
+name = ILGA Remote Newsletter
+description = Enables subscribing and unsubscribing to newsletters from a remote (drupal 7) site.
+core = 7.x
+
+package = "CiviMRF"
+project = "cmrf_core"
+version = "7.x-0.1"
+
+dependencies[] = cmrf_core
