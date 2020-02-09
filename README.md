@@ -1,8 +1,6 @@
-#Remote Newsletter
+# Remote Newsletter
 
 Enables  a drupal only site to offer a newsletter subscription to CiviCRM.
-
-##Preparations
 
 ### Install `cmr_core`
 Remote newsletter uses the CiviCRM rest api and the Drupal module `cmrf_core`, a remote integration toolkit. So this module must installed and configured:
